@@ -1,8 +1,9 @@
 import json
 import os
-
+import dicebot
 import boto3
 from aws_lambda_powertools import Logger, Metrics, Tracer
+from urllib.parse import parse_qs # to parse slack input
 
 # https://awslabs.github.io/aws-lambda-powertools-python/#features
 tracer = Tracer()
@@ -82,12 +83,30 @@ def lambda_handler(event, context):
             # api-gateway-simple-proxy-for-lambda-output-format
             https: // docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html
     """
+    dice_input = None
+    status_code = 500 # fallback value
+    result_output = {} # fallback
+    print(event) # ensure event input is logged
+    if "body" in event:
+        dice_input = event["body"]
     try:
-        message = {"hello": "world"}
-        return {
-            "statusCode": 200,
-            "body": json.dumps(message)
-        }
+        dice_query = parse_qs(event["body"])
+        print(dice_query) # log parsed message from slack
+        if "text" in dice_query:
+            dice_input = dice_query["text"][0] # The text field is an array
+        else:
+            dice_input = "" # default to empty string if missing
+        parsed_input = dicebot.parse_text(dice_input)
     except Exception as e:
-        logger.exception(e)
-        raise
+        status_code = 400
+        result_output = {"text": str(e)}
+    else:
+        dice_results = dicebot.roll_dice(**parsed_input)
+        print(dice_results)
+        result_output = dicebot.format_slack_response(dice_results)
+        status_code = 200
+    finally:
+        return {
+            "statusCode": status_code,
+            "body": json.dumps(result_output)
+        }
